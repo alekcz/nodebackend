@@ -37,9 +37,9 @@ if(config.limit)
 	{
 	    var job = new CronJob(
 	    {
-	      cronTime: '0 0 0 1 * *',//checkQuota once per month
+	      cronTime: config.cronstring,//checkQuota once per day for now
       	  onTick: function() {
-	            //checkQuota();//need efficient system
+	            checkQuota();//need efficient system
 	      },
 	      start: true,
 	      timeZone: 'Africa/Johannesburg'

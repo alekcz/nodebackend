@@ -3,6 +3,7 @@
 	 {
 	    "production": false,
 	    "acceptorigins":"mydomain.com",
+	    "cronstring": "0 0 0 * * *",
 	    "maxuploadMB": 20,
 	    "quota": true,
 	    "quotaMB": 1000
