@@ -31,7 +31,7 @@ var config  = JSON.parse(fs.readFileSync("config.json", 'utf8', function (err,da
 var origins = "*";
 if(config.production) origins = config.acceptorigins;
 var quotaUsed = checkQuota();
-if(config.limit)
+if(config.quota)
 {
 	try 
 	{
