@@ -12,10 +12,71 @@ var mime = require('mime');
 var formidable = require('formidable');
 var multer  = require('multer'); 
 var stat_mode = require('stat-mode');
+var CronJob = require('cron').CronJob;
+var getSize = require('get-folder-size');
 
 var directory = "./public_html";
 var maxfiles = 100;
 shell.mkdir('-p', directory);
+
+var config  = JSON.parse(fs.readFileSync("config.json", 'utf8', function (err,data) 
+	{
+	  if (err) 
+	  {
+	    return console.log(err);
+	  }
+	  return data;
+	})
+).config;
+var origins = "*";
+if(config.production) origins = config.acceptorigins;
+var quotaUsed = checkQuota();
+if(config.limit)
+{
+	try 
+	{
+	    var job = new CronJob(
+	    {
+	      cronTime: '0 0 0 1 * *',//checkQuota once per month
+      	  onTick: function() {
+	            //checkQuota();//need efficient system
+	      },
+	      start: true,
+	      timeZone: 'Africa/Johannesburg'
+	    });
+	    job.start();
+	} 
+	catch(ex) 
+	{
+	    console.log("cron pattern not valid");
+	}
+}
+var fileSizeList = {};
+
+var fileFilter = function (req, file, cb) 
+{
+  var filename = directory+req.body.destination+"/"+file.originalname;
+  try
+  {
+  	var stat = fs.lstatSync(filename)
+  	fileSizeList[filename] = stat.size;
+  }
+  catch(ex)
+  {
+  		fileSizeList[filename] = 0;
+  }
+  if(config.quota && (quotaUsed)>(config.quotaMB) )
+  { 
+  	console.log(exceeded());	
+  	cb(new Error(exceeded()));
+  	//cb(null, false);
+  }
+  else 
+  {
+  		cb(null, true);
+  }
+
+}
 
 var storage = multer.diskStorage({
   destination: function (request, file, cb) 
@@ -25,12 +86,15 @@ var storage = multer.diskStorage({
   },
   filename: function (request, file, cb) {
     cb(null, file.originalname)
-  }
-})
-
-var upload = multer({ storage: storage });
-
+  } 
+});
 var fieldlist = generateFieldlist(maxfiles);
+
+
+
+var limits = { fileSize: config.maxuploadMB * 1024 * 1024 }
+var upload = multer({ storage: storage,limits: limits,fileFilter:fileFilter}).fields(fieldlist);
+
 
 /*
 multer requires fields to be specified so this 
@@ -50,7 +114,7 @@ function generateFieldlist(N)
 
 
 app.use(function(req, res, next) {
-  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Origin", origins);
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
   next();
 });
@@ -68,7 +132,7 @@ app.post('/', function(request, response)
 	{
 		var command = request.body.params.mode;
    		var params  = request.body.params;
-    	console.log(command);
+    	//console.log(command);
 	
 	   	if(!params.path.startsWith('/public_html'))
 	   	{
@@ -146,21 +210,9 @@ app.post('/', function(request, response)
 		}});
 	}
 });
-app.post('/upload', upload.fields(fieldlist),function(request, response) 
+app.post('/upload',function(request, response) 
 {
-	/*form.parse(request, function(err, fields, files) 
-	{
-		var destination = __dirname+directory.substring(1)+fields.destination;
-		console.log(JSON.stringify(files));
-		for (var key in files) 
-		{
-		    if (files.hasOwnProperty(key)) 
-		    {
-		        console.log(JSON.stringify(key));
-		    }
-		}
-    });*/
-	response.send({ "result": { "success": true, "error": null } });
+	uploader(request,response);
 });
 app.get('/?', function(request, response) 
 {
@@ -175,8 +227,35 @@ app.listen(port);
 console.log('Nodebackend started! At http://localhost:' + port);
 
 
-function upload(field,request)
+function uploader(request,response)
 {
+	upload(request, response, function (err) 
+	{
+	    if (err) 
+	    {
+	      response.send({ "result": { "success": false, "error": "Quota"+err } });
+	      return
+	 	}
+	    var upfiles = request.files;
+	    for (var key in upfiles) 
+        {
+               	var uploaded = upfiles[key]
+               	for (var i = uploaded.length - 1; i >= 0; i--) 
+               	{
+               		var needle = (directory+uploaded[i].destination.replace(/^.*[\\\/]/, '')+"/"+uploaded[i].filename)+"";
+               		for (var haystack in fileSizeList) 
+        			{	
+        				var oldsize = fileSizeList[haystack];
+        				fileSizeList[haystack] = 0;
+        				addToQuota(-oldsize);
+               		 
+        			}
+        			addToQuota(uploaded[i].size);
+               	};
+        }   
+        fileSizeList = {};
+	    response.send({ "result": { "success": true, "error": null } });
+  	});
 
 }
 function download(params,response)
@@ -302,17 +381,51 @@ function copy(params,response)
 	{
 		if(fs.lstatSync(source).isDirectory())
 		{
-			shell.cp('-rf',source, destinationtemp);
+			getSize(__dirname+source.substring(1), function(err, size) 
+			{
+				if (err) 
+				{ 
+					console.log(err);
+					//throw err; 
+				}
+				else
+				{
+				  	if(config.quota && (quotaUsed+size/1024/1024)>(config.quotaMB) )
+	  				{
+						response.send({ "result": { "success": false, "error": exceeded()} });	
+					}
+					else 
+					{
+						shell.cp('-rf',source, destinationtemp);
+						if(shell.error()) throw shell.error();
+						addToQuota(size);
+						response.send({ "result": { "success": true, "error": null } });
+					}
+				}
+			});	
 		}
-		else shell.cp(source, destinationtemp);
-
-		if(shell.error()) throw "error";
-
-		response.send({ "result": { "success": true, "error": null } });
+		else 
+		{
+			var stat = fs.lstatSync(source);
+			var size = stat.size / 1024 / 1024;
+			if(config.quota && (quotaUsed+size)>(config.quotaMB) )
+			{
+				response.send({ "result": { "success": false, "error": exceeded() } });	
+			}
+			else 
+			{
+				shell.cp(source, destinationtemp);
+				if(shell.error()) throw shell.error();
+				addToQuota(size);
+				response.send({ "result": { "success": true, "error": null } });
+			}
+		}	
+		
+		
 	}
 	catch(ex)
 	{
-		response.send({ "result": { "success": false, "error": shell.error() } });	
+		response.send({ "result": { "success": false, "error": ex } });	
 		console.log(JSON.stringify(params));
 	}
 	
@@ -320,12 +433,13 @@ function copy(params,response)
 function deleter(params,response)
 {	
 	var target = directory+params.path;
-
+	var stat = fs.lstatSync(target);
+	var filesize = stat.size;	
 	try
 	{
 		shell.rm('-rf', target);
 		if(shell.error()) throw "error";
-
+		addToQuota(-filesize);
 		response.send({ "result": { "success": true, "error": null } });
 	}
 	catch(ex)
@@ -341,17 +455,37 @@ function compress(params,response)
 	var target = directory+params.destination;
 	try
 	{
-		var archive = archiver.create('zip', {});
-		var output = fs.createWriteStream(target);
-		archive.directory(source,source.replace(/^.*[\\\/]/, ''));
-		archive.pipe(output);
-		archive.on('finish', function () 
-		{ 
-			//Should we wait for the zip to finish before responding?
-			response.send({ "result": { "success": true, "error": null } });	
-		});
-		archive.finalize();
-
+		getSize(__dirname+source.substring(1), function(err, size) 
+		{
+				if (err) 
+				{ 
+					console.log(err);
+					//throw err; 
+				}
+				else
+				{
+				  	if(config.quota && (quotaUsed+size/1024/1024)>(config.quotaMB) )
+	  				{
+						response.send({ "result": { "success": false, "error": exceeded() } });	
+					}
+					else 
+					{
+						var archive = archiver.create('zip', {});
+						var output = fs.createWriteStream(target);
+						archive.directory(source,source.replace(/^.*[\\\/]/, ''));
+						archive.pipe(output);
+						archive.on('finish', function () 
+						{ 
+							var stat = fs.lstatSync(source);
+							var size = stat.size / 1024 / 1024;
+							addToQuota(size);
+							response.send({ "result": { "success": true, "error": null } });	
+						});
+						archive.finalize();
+						
+					}
+				}
+			});	
 	}
 	catch(ex)
 	{
@@ -365,24 +499,43 @@ function extract(params,response)
 {	
 	var source = directory+params.path;
 	var target = directory+params.destination;
+
 	try
 	{
-		var unzipper = new decompress(source)
-		unzipper.on('error', function (err) 
+		var stat = fs.lstatSync(source);
+		var size = stat.size / 1024 / 1024;
+		if(config.quota && (quotaUsed+size)>(config.quotaMB) )
 		{
-		    response.send({ "result": { "success": false, "error": err } });	
-		});
-		 
-		unzipper.on('extract', function (log) 
+			response.send({ "result": { "success": false, "error": exceeded() } });	
+		}
+		else
 		{
-			response.send({ "result": { "success": true, "error": null } });	
-		});
-		unzipper.extract({
-		    path: target,
-		    filter: function (file) {
-		        return file.type !== "SymbolicLink";
-		    }
-		});
+			var unzipper = new decompress(source)
+			unzipper.on('error', function (err) 
+			{
+			    response.send({ "result": { "success": false, "error": err } });	
+			});
+			 
+			unzipper.on('extract', function (log) 
+			{
+				getSize(__dirname+directory.substring(1), function(err, size) 
+				{
+				  if (err) 
+				  { 
+				  	console.log(err);
+				  	//throw err; 
+				  }
+				  else addToQuota(size / 1024 / 1024);
+				});	
+				response.send({ "result": { "success": true, "error": null } });	
+			});
+			unzipper.extract({
+			    path: target,
+			    filter: function (file) {
+			        return file.type !== "SymbolicLink";
+			    }
+			});
+		}
 
 	}
 	catch(ex)
@@ -433,7 +586,6 @@ function ls(params,response)
 			var stat = fs.lstatSync(files[i]);
 			var mode = new stat_mode(stat);
 			var per = mode.toString().replace(/s/,'x');
-			console.log(files[i]+" | "+per);
 			var filetype = "file";
 			if(stat.isDirectory()) filetype = "dir";
 			result.push({
@@ -452,3 +604,26 @@ String.prototype.startsWith = function(needle)
 {
     return(this.indexOf(needle) == 0);
 };
+function checkQuota()
+{
+	getSize(__dirname+directory.substring(1), function(err, size) 
+	{
+	  if (err) 
+	  { 
+	  	console.log(err);
+	  	//throw err; 
+	  }
+	  else quotaUsed = parseFloat((size / 1024 / 1024).toFixed(2));	 
+	  console.log(quotaUsed.toFixed(2) + ' Mb');
+	});	
+}
+function addToQuota(bytes)
+{
+	  quotaUsed += parseFloat((bytes / 1024 / 1024).toFixed(2));	
+	  if(quotaUsed<0) quotaUsed = 0.0;
+	  if(bytes>=0)console.log(quotaUsed.toFixed(2) + ' Mb');
+}
+function exceeded()
+{
+	return "Quota Exceeded "+quotaUsed.toFixed(2)+" / "+config.quotaMB+" MB"	
+}

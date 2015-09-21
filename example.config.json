@@ -1,0 +1,10 @@
+{
+ 	"config": 
+	 {
+	    "production": false,
+	    "acceptorigins":"mydomain.com",
+	    "maxupload": 20,
+	    "quota": true,
+	    "quotaMB": 1000
+	  }
+}
