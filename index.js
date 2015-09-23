@@ -214,6 +214,10 @@ app.post('/upload',function(request, response)
 {
 	uploader(request,response);
 });
+app.get('/config',function(request, response) 
+{
+	response.sendFile(__dirname+'/clientconfig.json');
+});
 app.get('/?', function(request, response) 
 {
 	var params = {};

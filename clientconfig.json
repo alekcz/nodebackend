@@ -1,0 +1,44 @@
+{
+    "values" : 
+    {
+        "appName": "https://github.com/joni2back/angular-filemanager",
+        "defaultLang": "en",
+
+        "listUrl": "http://labs.achielit.com:8080",
+        "uploadUrl": "http://labs.achielit.com:8080/upload",
+        "renameUrl": "http://labs.achielit.com:8080",
+        "copyUrl": "http://labs.achielit.com:8080",
+        "removeUrl": "http://labs.achielit.com:8080",
+        "editUrl": "http://labs.achielit.com:8080",
+        "getContentUrl": "http://labs.achielit.com:8080",
+        "createFolderUrl": "http://labs.achielit.com:8080",
+        "downloadFileUrl": "http://labs.achielit.com:8080",
+        "compressUrl": "http://labs.achielit.com:8080",
+        "extractUrl": "http://labs.achielit.com:8080",
+        "permissionsUrl": "http://labs.achielit.com:8080",
+
+        "sidebar": true,
+        "breadcrumb": true,
+        "allowedActions": {
+            "rename": true,
+            "copy": true,
+            "edit": true,
+            "changePermissions": true,
+            "compress": true,
+            "compressChooseName": true,
+            "extract": true,
+            "download": true,
+            "preview": true,
+            "remove": true
+        },
+
+        "enablePermissionsRecursive": true,
+        "compressAsync": true,
+        "extractAsync": true,
+
+        "isEditableFilePattern": "/\\.(txt|html?|aspx?|ini|pl|py|md|css|js|log|htaccess|htpasswd|json|sql|xml|xslt?|sh|rb|as|bat|cmd|coffee|php[3-6]?|java|c|cbl|go|h|scala|vb)$/i",
+        "isImageFilePattern": "/\\.(jpe?g|gif|bmp|png|svg|tiff?)$/i",
+        "isExtractableFilePattern": "/\\.(gz|tar|rar|g?zip)$/i",
+        "tplPath": "src/templates"
+    }
+}
